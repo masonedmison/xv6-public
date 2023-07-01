@@ -89,3 +89,33 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+static int 
+get_protect_args(char **addr, int *ip) {
+  if (argptr(0, addr, sizeof(char)) < 0 || argint(1, ip) < 0)
+    return -1;
+
+  return 0;
+}
+
+int
+sys_mprotect(void)
+{
+  int ip;
+  char *addr;
+  if (get_protect_args(&addr, &ip) < 0)
+    return -1;
+
+  return mprotect(addr, ip);
+}
+
+int
+sys_munprotect(void)
+{
+  int ip;
+  char *addr;
+  if (get_protect_args(&addr, &ip) < 0)
+    return -1;
+
+  return munprotect(addr, ip);
+}

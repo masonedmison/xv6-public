@@ -54,6 +54,19 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
   return &pgtab[PTX(va)];
 }
 
+static pte_t*
+get_pte(pde_t *pgdir, char *uva)
+{
+  pte_t *pte;
+  pte = walkpgdir(pgdir, uva, 0);
+  if ((*pte & PTE_P) == 0)
+    return 0;
+  if ((*pte & PTE_U) == 0)
+    return 0;
+  return pte;
+}
+
+
 // Create PTEs for virtual addresses starting at va that refer to
 // physical addresses starting at pa. va and size might not
 // be page-aligned.
@@ -383,6 +396,73 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
     va = va0 + PGSIZE;
   }
   return 0;
+}
+
+/*
+validation:
+  - check that addr is "page aligned"
+  - check that addr points to address currently apart of address space
+  If any validation step fails, return -1 and don't do anything
+  - len > 0
+if any validation step fails, return -1
+
+Change protection bits of page range starting at addr of len pages by calling `f`
+on pte
+*/
+static int
+gen_mprotect(void* addr, int len, void (*f)(pte_t))
+{
+  if (len <= 0)
+    return -1;
+  if (((uint)addr % PGSIZE) != 0)
+    return -1;
+
+  pde_t *pgdir = myproc()->pgdir;
+
+  int i;
+  pte_t *pte_to_change;
+
+  for (i = 0; i < len; i += PGSIZE)
+  {
+    pte_to_change = get_pte(pgdir, addr);
+
+    // if pte returns a null pointer, this generally means the table is not present _or_
+    // this is not "user" table. I'm still not 100% convinced this matches what's desribed in the project readme.
+    // TODO I believe we can check that the addr is valid _once_ using the the curproc->sz
+    // see argpointer for inspo
+    if (pte_to_change == 0) {
+      return -1;
+    }
+    (*f)(pte_to_change);
+  }
+
+  // ensure hardware knows of pagetable change.
+  // load existing page table register into the cr3 register
+  lcr3(V2P(pgdir));
+
+  return 0;
+}
+
+static void*
+remove_write_for_pte(pte_t *pte)
+{
+  *pte &= ~PTE_W;
+}
+int
+mprotect(void* addr, int len)
+{
+  return gen_mprotect(addr, len, remove_write_for_pte);
+}
+
+static void*
+set_write_for_pte(pte_t *pte)
+{
+  *pte |= PTE_W;
+}
+int
+munprotect(void* addr, int len)
+{
+  return gen_mprotect(addr, len, set_write_for_pte);
 }
 
 //PAGEBREAK!
